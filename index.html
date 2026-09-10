@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>아이라이드 (KidsRide & Care) - 모바일 웹앱</title>
+  <title>아이라이드 (KidsRide & Care) - 맞벌이 학원 라이딩 & 학원비 가계부</title>
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Pretendard Webfont -->
@@ -13,8 +13,6 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <!-- Babel -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <!-- Lucide Icons -->
-  <script src="https://unpkg.com/lucide@latest"></script>
   <script>
     tailwind.config = {
       theme: {
@@ -48,7 +46,7 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
 
-    // --- MOCK DATA ---
+    // --- MOCK INITIAL DATA ---
     const INITIAL_CHILDREN = [
       { id: 'child-1', name: '지호', age: '10세 (초등 3학년)', color: 'sky', avatar: '👦' },
       { id: 'child-2', name: '서아', age: '7세 (유치원)', color: 'rose', avatar: '👧' },
@@ -185,36 +183,44 @@
       { id: 'note-3', sender: '엄마', content: '고마워요! 저녁엔 소고기 볶음밥 해둘게요 :)', timestamp: '오전 10:20', isUrgent: false },
     ];
 
-    // --- APP COMPONENT ---
+    const STORAGE_PREFIX = 'kidsride_v3_';
+
     function App() {
+      // LocalStorage 기반 상태 초기화 (수정한 내용이 100% 영구 보존됨)
       const [childrenList, setChildrenList] = useState(() => {
-        const saved = localStorage.getItem('kr_children');
+        const saved = localStorage.getItem(STORAGE_PREFIX + 'children');
         return saved ? JSON.parse(saved) : INITIAL_CHILDREN;
       });
 
       const [schedules, setSchedules] = useState(() => {
-        const saved = localStorage.getItem('kr_schedules');
+        const saved = localStorage.getItem(STORAGE_PREFIX + 'schedules');
         return saved ? JSON.parse(saved) : INITIAL_SCHEDULES;
       });
 
       const [tuitions, setTuitions] = useState(() => {
-        const saved = localStorage.getItem('kr_tuitions');
+        const saved = localStorage.getItem(STORAGE_PREFIX + 'tuitions');
         return saved ? JSON.parse(saved) : INITIAL_TUITIONS;
       });
 
       const [familyNotes, setFamilyNotes] = useState(() => {
-        const saved = localStorage.getItem('kr_notes');
+        const saved = localStorage.getItem(STORAGE_PREFIX + 'notes');
         return saved ? JSON.parse(saved) : INITIAL_FAMILY_NOTES;
       });
 
+      // UI 상태
       const [activeTab, setActiveTab] = useState('schedule');
       const [selectedChildId, setSelectedChildId] = useState('all');
       const [viewMode, setViewMode] = useState('today');
       const [selectedDayOfWeek, setSelectedDayOfWeek] = useState(new Date().getDay());
-      const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
-      const [isTuitionModalOpen, setIsTuitionModalOpen] = useState(false);
       const [toastMessage, setToastMessage] = useState(null);
       const [isPhoneFrame, setIsPhoneFrame] = useState(true);
+
+      // 모달 상태
+      const [isChildModalOpen, setIsChildModalOpen] = useState(false);
+      const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+      const [editingSchedule, setEditingSchedule] = useState(null);
+      const [isTuitionModalOpen, setIsTuitionModalOpen] = useState(false);
+      const [editingTuition, setEditingTuition] = useState(null);
 
       // 쪽지 입력 상태
       const [newNote, setNewNote] = useState('');
@@ -224,30 +230,77 @@
       // 학원비 필터 상태
       const [tuitionFilter, setTuitionFilter] = useState('all');
 
+      // LocalStorage 자동 동기화
       useEffect(() => {
-        localStorage.setItem('kr_children', JSON.stringify(childrenList));
-        localStorage.setItem('kr_schedules', JSON.stringify(schedules));
-        localStorage.setItem('kr_tuitions', JSON.stringify(tuitions));
-        localStorage.setItem('kr_notes', JSON.stringify(familyNotes));
-      }, [childrenList, schedules, tuitions, familyNotes]);
+        localStorage.setItem(STORAGE_PREFIX + 'children', JSON.stringify(childrenList));
+      }, [childrenList]);
+
+      useEffect(() => {
+        localStorage.setItem(STORAGE_PREFIX + 'schedules', JSON.stringify(schedules));
+      }, [schedules]);
+
+      useEffect(() => {
+        localStorage.setItem(STORAGE_PREFIX + 'tuitions', JSON.stringify(tuitions));
+      }, [tuitions]);
+
+      useEffect(() => {
+        localStorage.setItem(STORAGE_PREFIX + 'notes', JSON.stringify(familyNotes));
+      }, [familyNotes]);
 
       const showToast = (msg) => {
         setToastMessage(msg);
         setTimeout(() => setToastMessage((prev) => (prev === msg ? null : prev)), 2400);
       };
 
+      // 초기화 함수
       const handleReset = () => {
-        if (confirm('초기 Mock Data로 복원하시겠습니까?')) {
+        if (confirm('모든 데이터를 초기 기본값으로 되돌리시겠습니까? (직접 수정한 자녀, 일정, 학원비가 리셋됩니다)')) {
           setChildrenList(INITIAL_CHILDREN);
           setSchedules(INITIAL_SCHEDULES);
           setTuitions(INITIAL_TUITIONS);
           setFamilyNotes(INITIAL_FAMILY_NOTES);
-          localStorage.clear();
+          setSelectedChildId('all');
+          localStorage.removeItem(STORAGE_PREFIX + 'children');
+          localStorage.removeItem(STORAGE_PREFIX + 'schedules');
+          localStorage.removeItem(STORAGE_PREFIX + 'tuitions');
+          localStorage.removeItem(STORAGE_PREFIX + 'notes');
           showToast('초기 데이터로 복원되었습니다.');
         }
       };
 
-      // 일정 핸들러
+      // 1. 자녀 저장/수정 핸들러
+      const handleSaveChildren = (updatedChildren) => {
+        setChildrenList(updatedChildren);
+        if (selectedChildId !== 'all' && !updatedChildren.some(c => c.id === selectedChildId)) {
+          setSelectedChildId('all');
+        }
+        setIsChildModalOpen(false);
+        showToast('✨ 자녀 정보가 저장되었습니다.');
+      };
+
+      // 2. 일정 핸들러 (등록 및 수정)
+      const handleStartAddSchedule = () => {
+        setEditingSchedule(null);
+        setIsScheduleModalOpen(true);
+      };
+
+      const handleStartEditSchedule = (sch) => {
+        setEditingSchedule(sch);
+        setIsScheduleModalOpen(true);
+      };
+
+      const handleSaveSchedule = (data, editId) => {
+        if (editId) {
+          setSchedules(prev => prev.map(s => s.id === editId ? { ...data, id: editId, isCompletedToday: s.isCompletedToday } : s));
+          showToast(`✏️ '${data.academyName}' 일정이 수정되었습니다.`);
+        } else {
+          const newSch = { ...data, id: `sch-${Date.now()}`, isCompletedToday: false };
+          setSchedules(prev => [...prev, newSch]);
+          showToast(`✨ '${newSch.academyName}' 새 일정이 등록되었습니다.`);
+        }
+        setIsScheduleModalOpen(false);
+      };
+
       const toggleAlert = (id) => {
         setSchedules((prev) =>
           prev.map((s) => (s.id === id ? { ...s, alertEnabled: !s.alertEnabled } : s))
@@ -278,17 +331,38 @@
       };
 
       const deleteSchedule = (id) => {
-        if (confirm('일정을 삭제하시겠습니까?')) {
+        if (confirm('이 학원 일정을 삭제하시겠습니까?')) {
           setSchedules((prev) => prev.filter((s) => s.id !== id));
           showToast('일정이 삭제되었습니다.');
         }
       };
 
-      // 학원비 핸들러
+      // 3. 학원비 핸들러 (등록 및 수정)
+      const handleStartAddTuition = () => {
+        setEditingTuition(null);
+        setIsTuitionModalOpen(true);
+      };
+
+      const handleStartEditTuition = (tui) => {
+        setEditingTuition(tui);
+        setIsTuitionModalOpen(true);
+      };
+
+      const handleSaveTuition = (data, editId) => {
+        if (editId) {
+          setTuitions(prev => prev.map(t => t.id === editId ? { ...data, id: editId } : t));
+          showToast(`✏️ '${data.academyName}' 학원비가 수정되었습니다.`);
+        } else {
+          const newTui = { ...data, id: `tui-${Date.now()}` };
+          setTuitions(prev => [...prev, newTui]);
+          showToast(`💰 '${newTui.academyName}' 학원비가 등록되었습니다.`);
+        }
+        setIsTuitionModalOpen(false);
+      };
+
       const changeTuitionStatus = (id, status) => {
         setTuitions((prev) =>
           prev.map((t) => (t.id === id ? { ...t, status } : t))
-
         );
         showToast('학원비 상태가 변경되었습니다.');
       };
@@ -300,7 +374,7 @@
         }
       };
 
-      // 쪽지 핸들러
+      // 4. 쪽지 핸들러
       const handleSendNote = (e) => {
         e.preventDefault();
         if (!newNote.trim()) return;
@@ -430,11 +504,11 @@
                 </button>
               </div>
 
-              {/* Children Filter Pills */}
+              {/* Children Filter Pills & Manage Button */}
               <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pt-1">
                 <button
                   onClick={() => setSelectedChildId('all')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer shrink-0 ${
                     selectedChildId === 'all'
                       ? 'bg-slate-900 text-white shadow-xs'
                       : 'bg-slate-100 text-slate-600'
@@ -448,7 +522,7 @@
                     <button
                       key={child.id}
                       onClick={() => setSelectedChildId(child.id)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer ${
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer shrink-0 ${
                         isSelected
                           ? child.color === 'sky'
                             ? 'bg-sky-500 text-white shadow-sm shadow-sky-200'
@@ -458,14 +532,25 @@
                     >
                       <span className="text-sm leading-none">{child.avatar}</span>
                       <span>{child.name}</span>
+                      <span className={`text-[10px] opacity-75 ${isSelected ? 'text-white' : 'text-slate-400'}`}>
+                        ({child.age.split(' ')[0]})
+                      </span>
                     </button>
                   );
                 })}
+
+                {/* 자녀 관리 버튼 */}
+                <button
+                  onClick={() => setIsChildModalOpen(true)}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-bold bg-white text-teal-700 border border-teal-200 hover:bg-teal-50 cursor-pointer shrink-0 shadow-2xs"
+                >
+                  <span>⚙️ 자녀 관리</span>
+                </button>
               </div>
             </header>
 
             {/* Main Content Area */}
-            <main className="flex-1 px-4 pt-3.5 pb-24 overflow-y-auto no-scrollbar">
+            <main className="flex-1 px-4 pt-3.5 pb-6 overflow-y-auto no-scrollbar">
               {/* TAB 1: SCHEDULE */}
               {activeTab === 'schedule' && (
                 <div className="space-y-4">
@@ -495,7 +580,7 @@
                     </div>
 
                     <button
-                      onClick={() => setIsScheduleModalOpen(true)}
+                      onClick={handleStartAddSchedule}
                       className="px-3 py-1.5 rounded-xl bg-teal-600 text-white text-xs font-bold shadow-xs cursor-pointer hover:bg-teal-700"
                     >
                       + 일정 등록
@@ -590,17 +675,26 @@
                                 )}
                               </div>
 
-                              <button
-                                onClick={() => toggleComplete(item.id)}
-                                className={`text-xs font-bold px-2.5 py-1 rounded-xl cursor-pointer ${
-                                  isDone
-                                    ? 'bg-teal-50 text-teal-700 border border-teal-200'
-                                    : 'bg-slate-100 text-slate-500'
-                                }`}
-                              >
-                                {isDone ? '✅ 완료' : '⚪ 미완료'}
-                              </button>
-
+                              {/* 수정 & 완료 버튼 */}
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => handleStartEditSchedule(item)}
+                                  className="text-xs font-semibold px-2 py-1 rounded-xl bg-slate-100 hover:bg-teal-50 text-slate-600 hover:text-teal-700 cursor-pointer"
+                                  title="일정 수정"
+                                >
+                                  ✏️ 수정
+                                </button>
+                                <button
+                                  onClick={() => toggleComplete(item.id)}
+                                  className={`text-xs font-bold px-2.5 py-1 rounded-xl cursor-pointer ${
+                                    isDone
+                                      ? 'bg-teal-50 text-teal-700 border border-teal-200'
+                                      : 'bg-slate-100 text-slate-500'
+                                  }`}
+                                >
+                                  {isDone ? '✅ 완료' : '⚪ 미완료'}
+                                </button>
+                              </div>
                             </div>
 
                             <div className="mt-2">
@@ -666,6 +760,7 @@
                                 <button
                                   onClick={() => deleteSchedule(item.id)}
                                   className="text-slate-300 hover:text-rose-500 text-xs px-1 cursor-pointer"
+                                  title="일정 삭제"
                                 >
                                   🗑️
                                 </button>
@@ -777,8 +872,8 @@
                       <p className="text-[11px] text-slate-400">결제 D-day 및 수납 관리</p>
                     </div>
                     <button
-                      onClick={() => setIsTuitionModalOpen(true)}
-                      className="px-3 py-1.5 bg-teal-600 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
+                      onClick={handleStartAddTuition}
+                      className="px-3 py-1.5 bg-teal-600 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer hover:bg-teal-700"
                     >
                       + 학원비 등록
                     </button>
@@ -855,8 +950,8 @@
                           </div>
 
                           <div className="mt-3 pt-2 border-t border-slate-100 flex justify-between items-center text-xs">
-                            <span className="text-[11px] text-slate-400">{item.paymentMethod}</span>
-                            <div className="flex items-center gap-1">
+                            <span className="text-[11px] text-slate-400">{item.paymentMethod} {item.memo && `· ${item.memo}`}</span>
+                            <div className="flex items-center gap-1.5">
                               <select
                                 value={item.status}
                                 onChange={(e) => changeTuitionStatus(item.id, e.target.value)}
@@ -867,8 +962,16 @@
                                 <option value="discounted">🎁 할인</option>
                               </select>
                               <button
+                                onClick={() => handleStartEditTuition(item)}
+                                className="text-slate-400 hover:text-teal-600 text-xs px-1 cursor-pointer"
+                                title="학원비 수정"
+                              >
+                                ✏️
+                              </button>
+                              <button
                                 onClick={() => deleteTuition(item.id)}
-                                className="text-slate-300 hover:text-rose-500 ml-1 cursor-pointer"
+                                className="text-slate-300 hover:text-rose-500 text-xs px-1 cursor-pointer"
+                                title="학원비 삭제"
                               >
                                 🗑️
                               </button>
@@ -890,7 +993,7 @@
             )}
 
             {/* Bottom Nav */}
-            <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/95 backdrop-blur-md border-t border-slate-200 px-4 py-2 z-30 shadow-lg">
+            <nav className="sticky bottom-0 left-0 right-0 w-full bg-white/95 backdrop-blur-md border-t border-slate-200 px-4 py-2 z-30 shadow-lg mt-auto">
               <div className="flex items-center justify-around">
                 {[
                   { id: 'schedule', label: '일정·라이딩', icon: '🚗', badge: pendingRidesCount },
@@ -910,6 +1013,623 @@
                 ))}
               </div>
             </nav>
+
+            {/* MODAL 1: 자녀 관리 모달 */}
+            {isChildModalOpen && (
+              <ChildManageModalStandalone
+                childrenList={childrenList}
+                onClose={() => setIsChildModalOpen(false)}
+                onSave={handleSaveChildren}
+              />
+            )}
+
+            {/* MODAL 2: 일정 추가/수정 모달 */}
+            {isScheduleModalOpen && (
+              <ScheduleModalStandalone
+                childrenList={childrenList}
+                initialData={editingSchedule}
+                onClose={() => setIsScheduleModalOpen(false)}
+                onSave={handleSaveSchedule}
+              />
+            )}
+
+            {/* MODAL 3: 학원비 추가/수정 모달 */}
+            {isTuitionModalOpen && (
+              <TuitionModalStandalone
+                childrenList={childrenList}
+                initialData={editingTuition}
+                onClose={() => setIsTuitionModalOpen(false)}
+                onSave={handleSaveTuition}
+              />
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // --- STANDALONE CHILD MANAGE MODAL ---
+    function ChildManageModalStandalone({ childrenList, onClose, onSave }) {
+      const [list, setList] = useState(() => childrenList.map(c => ({ ...c })));
+      const avatars = ['👦', '👧', '🧒', '👶', '🧑', '👱', '🦸', '🧚'];
+
+      const updateField = (idx, field, val) => {
+        const next = [...list];
+        next[idx][field] = val;
+        setList(next);
+      };
+
+      const addChild = () => {
+        const newC = {
+          id: `child-${Date.now()}`,
+          name: `자녀 ${list.length + 1}`,
+          age: '8세 (초1)',
+          color: list.length % 2 === 0 ? 'sky' : 'rose',
+          avatar: list.length % 2 === 0 ? '👦' : '👧',
+        };
+        setList([...list, newC]);
+      };
+
+      const removeChild = (id) => {
+        if (list.length <= 1) {
+          alert('최소 1명 이상의 자녀 정보가 필요합니다.');
+          return;
+        }
+        if (confirm('이 자녀를 삭제하시겠습니까?')) {
+          setList(list.filter(c => c.id !== id));
+        }
+      };
+
+      const handleSave = () => {
+        for (const c of list) {
+          if (!c.name.trim()) {
+            alert('자녀 이름을 입력해 주세요.');
+            return;
+          }
+        }
+        onSave(list);
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white w-full max-w-md rounded-3xl p-5 shadow-2xl max-h-[90vh] overflow-y-auto no-scrollbar flex flex-col">
+            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">자녀 정보 관리 및 수정</h3>
+                <p className="text-xs text-slate-400">자녀 이름, 나이, 아바타를 수정하세요</p>
+              </div>
+              <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
+            </div>
+
+            <div className="space-y-4 py-4 flex-1">
+              {list.map((c, idx) => (
+                <div key={c.id} className="bg-slate-50 rounded-2xl p-3.5 border border-slate-200 space-y-2.5">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded">#{idx + 1} 자녀</span>
+                    {list.length > 1 && (
+                      <button onClick={() => removeChild(c.id)} className="text-slate-400 hover:text-rose-500 text-xs cursor-pointer">
+                        🗑️ 삭제
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1">이름</label>
+                      <input
+                        type="text"
+                        value={c.name}
+                        onChange={(e) => updateField(idx, 'name', e.target.value)}
+                        className="w-full text-xs font-bold bg-white border border-slate-200 rounded-xl px-2.5 py-1.5"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1">나이 / 학년</label>
+                      <input
+                        type="text"
+                        value={c.age}
+                        onChange={(e) => updateField(idx, 'age', e.target.value)}
+                        className="w-full text-xs bg-white border border-slate-200 rounded-xl px-2.5 py-1.5"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">아바타</label>
+                    <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+                      {avatars.map(av => (
+                        <button
+                          key={av}
+                          type="button"
+                          onClick={() => updateField(idx, 'avatar', av)}
+                          className={`w-7 h-7 rounded-lg text-sm cursor-pointer ${
+                            c.avatar === av ? 'bg-teal-500 text-white scale-110 shadow-xs' : 'bg-white border'
+                          }`}
+                        >
+                          {av}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              <button
+                type="button"
+                onClick={addChild}
+                className="w-full py-2.5 border-2 border-dashed border-teal-200 bg-teal-50/50 text-teal-700 font-bold rounded-2xl text-xs cursor-pointer"
+              >
+                + 자녀 추가하기
+              </button>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex gap-2">
+              <button onClick={onClose} className="flex-1 py-2.5 bg-slate-100 text-slate-600 font-bold rounded-2xl text-xs cursor-pointer">취소</button>
+              <button onClick={handleSave} className="flex-1 py-2.5 bg-teal-600 text-white font-bold rounded-2xl text-xs shadow-md shadow-teal-200 cursor-pointer">저장 완료</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // --- STANDALONE SCHEDULE MODAL ---
+    function ScheduleModalStandalone({ childrenList, initialData, onClose, onSave }) {
+      const [childId, setChildId] = useState(initialData ? initialData.childId : childrenList[0]?.id || '');
+      const [subject, setSubject] = useState(initialData ? initialData.subject : '수학');
+      const [academyName, setAcademyName] = useState(initialData ? initialData.academyName : '');
+      const [location, setLocation] = useState(initialData?.location || '');
+      const [daysOfWeek, setDaysOfWeek] = useState(initialData ? initialData.daysOfWeek : [1, 3]);
+      const [startTime, setStartTime] = useState(initialData ? initialData.startTime : '16:00');
+      const [endTime, setEndTime] = useState(initialData ? initialData.endTime : '17:30');
+      const [isSpecialVacation, setIsSpecialVacation] = useState(initialData ? initialData.isSpecialVacation : false);
+      const [alertEnabled, setAlertEnabled] = useState(initialData ? initialData.alertEnabled : true);
+      const [alertMinutesBefore, setAlertMinutesBefore] = useState(initialData ? initialData.alertMinutesBefore : 30);
+      const [pickupRole, setPickupRole] = useState(initialData ? initialData.pickupRole : 'mother');
+      const [notes, setNotes] = useState(initialData?.notes || '');
+
+      const daysList = [
+        { index: 1, label: '월' },
+        { index: 2, label: '화' },
+        { index: 3, label: '수' },
+        { index: 4, label: '목' },
+        { index: 5, label: '금' },
+        { index: 6, label: '토' },
+        { index: 0, label: '일' },
+      ];
+
+      const toggleDay = (idx) => {
+        if (daysOfWeek.includes(idx)) {
+          setDaysOfWeek(daysOfWeek.filter(d => d !== idx));
+        } else {
+          setDaysOfWeek([...daysOfWeek, idx].sort());
+        }
+      };
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        if (!academyName.trim()) {
+          alert('학원명을 입력하세요.');
+          return;
+        }
+        if (daysOfWeek.length === 0) {
+          alert('수업 요일을 최소 1일 이상 선택하세요.');
+          return;
+        }
+        onSave({
+          childId,
+          subject,
+          academyName: academyName.trim(),
+          location: location.trim() || undefined,
+          daysOfWeek,
+          startTime,
+          endTime,
+          isSpecialVacation,
+          alertEnabled,
+          alertMinutesBefore,
+          pickupRole,
+          notes: notes.trim() || undefined,
+        }, initialData?.id);
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white w-full max-w-md rounded-3xl p-5 shadow-2xl max-h-[90vh] overflow-y-auto no-scrollbar">
+            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  {initialData ? '학원 일정 수정' : '새 학원 일정 등록'}
+                </h3>
+                <p className="text-xs text-slate-400">시간, 요일, 라이딩 알림을 설정하세요</p>
+              </div>
+              <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4 pt-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">자녀 선택</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {childrenList.map(c => (
+                    <button
+                      type="button"
+                      key={c.id}
+                      onClick={() => setChildId(c.id)}
+                      className={`p-2.5 rounded-xl border text-xs font-bold cursor-pointer ${
+                        childId === c.id ? 'bg-teal-50 border-teal-500 text-teal-800' : 'bg-slate-50 text-slate-600'
+                      }`}
+                    >
+                      {c.avatar} {c.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">과목</label>
+                  <input
+                    type="text"
+                    value={subject}
+                    onChange={e => setSubject(e.target.value)}
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">수업 유형</label>
+                  <button
+                    type="button"
+                    onClick={() => setIsSpecialVacation(!isSpecialVacation)}
+                    className={`w-full py-2 rounded-xl text-xs font-bold border cursor-pointer ${
+                      isSpecialVacation ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-slate-50 text-slate-600'
+                    }`}
+                  >
+                    {isSpecialVacation ? '✨ 방학특강' : '정규 학기'}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">학원명</label>
+                <input
+                  type="text"
+                  value={academyName}
+                  onChange={e => setAcademyName(e.target.value)}
+                  placeholder="예: 정상어학원"
+                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">위치 (선택)</label>
+                <input
+                  type="text"
+                  value={location}
+                  onChange={e => setLocation(e.target.value)}
+                  placeholder="예: 상가 3층 301호"
+                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">반복 요일</label>
+                <div className="grid grid-cols-7 gap-1">
+                  {daysList.map(d => (
+                    <button
+                      type="button"
+                      key={d.index}
+                      onClick={() => toggleDay(d.index)}
+                      className={`py-2 rounded-xl text-xs font-bold cursor-pointer ${
+                        daysOfWeek.includes(d.index) ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">시작 시간</label>
+                  <input
+                    type="time"
+                    value={startTime}
+                    onChange={e => setStartTime(e.target.value)}
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">종료 시간</label>
+                  <input
+                    type="time"
+                    value={endTime}
+                    onChange={e => setEndTime(e.target.value)}
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* 출발 준비 알림 */}
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-bold text-slate-700">출발 준비 라이딩 알림</span>
+                  <input
+                    type="checkbox"
+                    checked={alertEnabled}
+                    onChange={e => setAlertEnabled(e.target.checked)}
+                    className="w-4 h-4 text-teal-600"
+                  />
+                </div>
+                {alertEnabled && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-slate-500">알림 시점:</span>
+                    <div className="grid grid-cols-4 gap-1 flex-1">
+                      {[15, 30, 45, 60].map(m => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setAlertMinutesBefore(m)}
+                          className={`py-1 text-xs rounded-lg font-bold border cursor-pointer ${
+                            alertMinutesBefore === m ? 'bg-teal-600 text-white' : 'bg-white text-slate-600'
+                          }`}
+                        >
+                          {m === 60 ? '1시간전' : `${m}분전`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 픽업 담당자 */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">기본 픽업 담당자</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { k: 'mother', label: '엄마 👩' },
+                    { k: 'father', label: '아빠 👨' },
+                    { k: 'both', label: '공동 💜' },
+                  ].map(r => (
+                    <button
+                      key={r.k}
+                      type="button"
+                      onClick={() => setPickupRole(r.k)}
+                      className={`py-2 rounded-xl text-xs font-bold border cursor-pointer ${
+                        pickupRole === r.k ? 'bg-slate-800 text-white' : 'bg-slate-50 text-slate-600'
+                      }`}
+                    >
+                      {r.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">준비물 및 비고</label>
+                <input
+                  type="text"
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  placeholder="예: 영어 교재 챙기기"
+                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                />
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-teal-600 text-white font-bold rounded-2xl text-xs shadow-md shadow-teal-200 cursor-pointer"
+                >
+                  {initialData ? '일정 수정 완료' : '일정 등록 완료'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    // --- STANDALONE TUITION MODAL ---
+    function TuitionModalStandalone({ childrenList, initialData, onClose, onSave }) {
+      const [childId, setChildId] = useState(initialData ? initialData.childId : childrenList[0]?.id || '');
+      const [academyName, setAcademyName] = useState(initialData ? initialData.academyName : '');
+      const [subject, setSubject] = useState(initialData ? initialData.subject : '영어');
+      const [category, setCategory] = useState(initialData ? initialData.category : '어학');
+      const [amount, setAmount] = useState(initialData ? String(initialData.amount) : '250000');
+      const [dueDay, setDueDay] = useState(initialData ? initialData.dueDay : 15);
+      const [status, setStatus] = useState(initialData ? initialData.status : 'pending');
+      const [discountAmount, setDiscountAmount] = useState(initialData?.discountAmount ? String(initialData.discountAmount) : '0');
+      const [paymentMethod, setPaymentMethod] = useState(initialData?.paymentMethod || '신용카드');
+      const [memo, setMemo] = useState(initialData?.memo || '');
+
+      const categories = ['교과', '어학', '예체능', '특강/코딩', '기타'];
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        if (!academyName.trim()) {
+          alert('학원명을 입력하세요.');
+          return;
+        }
+        const parsedAmount = parseInt(amount, 10);
+        if (isNaN(parsedAmount) || parsedAmount <= 0) {
+          alert('올바른 금액을 입력하세요.');
+          return;
+        }
+        onSave({
+          childId,
+          academyName: academyName.trim(),
+          subject: subject.trim(),
+          category,
+          amount: parsedAmount,
+          dueDay: Number(dueDay),
+          status,
+          discountAmount: Number(discountAmount) > 0 ? Number(discountAmount) : undefined,
+          paymentMethod,
+          memo: memo.trim() || undefined,
+        }, initialData?.id);
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white w-full max-w-md rounded-3xl p-5 shadow-2xl max-h-[90vh] overflow-y-auto no-scrollbar">
+            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  {initialData ? '학원비 내역 수정' : '새 학원비 등록'}
+                </h3>
+                <p className="text-xs text-slate-400">수업료 및 결제 D-day를 설정하세요</p>
+              </div>
+              <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4 pt-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">자녀 선택</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {childrenList.map(c => (
+                    <button
+                      type="button"
+                      key={c.id}
+                      onClick={() => setChildId(c.id)}
+                      className={`p-2.5 rounded-xl border text-xs font-bold cursor-pointer ${
+                        childId === c.id ? 'bg-teal-50 border-teal-500 text-teal-800' : 'bg-slate-50 text-slate-600'
+                      }`}
+                    >
+                      {c.avatar} {c.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">학원명</label>
+                  <input
+                    type="text"
+                    value={academyName}
+                    onChange={e => setAcademyName(e.target.value)}
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">과목</label>
+                  <input
+                    type="text"
+                    value={subject}
+                    onChange={e => setSubject(e.target.value)}
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">과목 분야</label>
+                <div className="grid grid-cols-5 gap-1">
+                  {categories.map(cat => (
+                    <button
+                      type="button"
+                      key={cat}
+                      onClick={() => setCategory(cat)}
+                      className={`py-1.5 text-xs font-bold rounded-xl border cursor-pointer ${
+                        category === cat ? 'bg-teal-600 text-white' : 'bg-slate-50 text-slate-600'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">월 수업료 (원)</label>
+                  <input
+                    type="number"
+                    value={amount}
+                    onChange={e => setAmount(e.target.value)}
+                    step="5000"
+                    min="0"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">결제일 (매월)</label>
+                  <select
+                    value={dueDay}
+                    onChange={e => setDueDay(Number(e.target.value))}
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 cursor-pointer"
+                  >
+                    {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
+                      <option key={day} value={day}>매월 {day}일</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">결제 수단</label>
+                  <select
+                    value={paymentMethod}
+                    onChange={e => setPaymentMethod(e.target.value)}
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 cursor-pointer"
+                  >
+                    <option value="신용카드">신용카드</option>
+                    <option value="계좌이체">계좌이체</option>
+                    <option value="지역화폐/바우처">지역화폐/바우처</option>
+                    <option value="현금/직접납부">현금/직접납부</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">결제 상태</label>
+                  <select
+                    value={status}
+                    onChange={e => setStatus(e.target.value)}
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 cursor-pointer font-bold"
+                  >
+                    <option value="pending">⏳ 결제 대기</option>
+                    <option value="completed">✅ 결제 완료</option>
+                    <option value="discounted">🎁 할인/특강</option>
+                  </select>
+                </div>
+              </div>
+
+              {status === 'discounted' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">할인/바우처 절감액 (원)</label>
+                  <input
+                    type="number"
+                    value={discountAmount}
+                    onChange={e => setDiscountAmount(e.target.value)}
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">메모 (선택)</label>
+                <input
+                  type="text"
+                  value={memo}
+                  onChange={e => setMemo(e.target.value)}
+                  placeholder="예: 카드사 5% 캐시백 적용"
+                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                />
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-teal-600 text-white font-bold rounded-2xl text-xs shadow-md shadow-teal-200 cursor-pointer"
+                >
+                  {initialData ? '학원비 수정 완료' : '학원비 등록 완료'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       );
