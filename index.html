@@ -205,6 +205,82 @@
       }
     }
 
+    function formatSimpleTime(t) {
+      if (!t) return '';
+      const parts = t.split(':');
+      if (parts.length < 2) return t;
+      let h = parseInt(parts[0], 10);
+      const m = parts[1];
+      if (h > 12) h -= 12;
+      else if (h === 0) h = 12;
+      return `${h}:${m}`;
+    }
+
+    function getSubjectColor(subject = '', academyName = '') {
+      const s = (subject + ' ' + academyName).toLowerCase();
+      // 1. 수학 관련 (샛노란색 - 사용자 이미지 스타일)
+      if (s.includes('수학') || s.includes('대수') || s.includes('미적') || s.includes('기하') || s.includes('시매쓰') || s.includes('황소') || s.includes('사고력')) {
+        return {
+          bg: 'bg-yellow-200 hover:bg-yellow-300',
+          text: 'text-yellow-950',
+          border: 'border-yellow-400',
+          badge: 'bg-yellow-400/40 text-yellow-900',
+        };
+      }
+      // 2. 과학/물리/화학/생명 (핑크/보라색 - 사용자 이미지 스타일)
+      if (s.includes('물리') || s.includes('화학') || s.includes('생명') || s.includes('지구') || s.includes('과학') || s.includes('실험')) {
+        return {
+          bg: 'bg-fuchsia-200 hover:bg-fuchsia-300',
+          text: 'text-fuchsia-950',
+          border: 'border-fuchsia-400',
+          badge: 'bg-fuchsia-400/40 text-fuchsia-900',
+        };
+      }
+      // 3. 국어/논술/독서 (연두색 - 사용자 이미지 스타일)
+      if (s.includes('국어') || s.includes('논술') || s.includes('독서') || s.includes('한글') || s.includes('문해력')) {
+        return {
+          bg: 'bg-lime-200 hover:bg-lime-300',
+          text: 'text-lime-950',
+          border: 'border-lime-400',
+          badge: 'bg-lime-400/40 text-lime-900',
+        };
+      }
+      // 4. 영어/어학 (하늘색 - 사용자 이미지 스타일)
+      if (s.includes('영어') || s.includes('어학') || s.includes('스피킹') || s.includes('파닉스') || s.includes('ace') || s.includes('청담') || s.includes('폴리') || s.includes('정상')) {
+        return {
+          bg: 'bg-cyan-200 hover:bg-cyan-300',
+          text: 'text-cyan-950',
+          border: 'border-cyan-400',
+          badge: 'bg-cyan-400/40 text-cyan-900',
+        };
+      }
+      // 5. 예체능 (피아노, 미술, 발레, 태권도, 축구 등) (살구/오렌지색)
+      if (s.includes('피아노') || s.includes('음악') || s.includes('바이올린') || s.includes('발레') || s.includes('무용') || s.includes('태권도') || s.includes('축구') || s.includes('수영') || s.includes('미술') || s.includes('줄넘기')) {
+        return {
+          bg: 'bg-amber-100 hover:bg-amber-200',
+          text: 'text-amber-950',
+          border: 'border-amber-300',
+          badge: 'bg-amber-300/50 text-amber-900',
+        };
+      }
+      // 6. 코딩/컴퓨터 (보라색)
+      if (s.includes('코딩') || s.includes('컴퓨터') || s.includes('로봇') || s.includes('sw')) {
+        return {
+          bg: 'bg-violet-200 hover:bg-violet-300',
+          text: 'text-violet-950',
+          border: 'border-violet-400',
+          badge: 'bg-violet-400/40 text-violet-900',
+        };
+      }
+      // 7. 기본 (민트)
+      return {
+        bg: 'bg-teal-100 hover:bg-teal-200',
+        text: 'text-teal-950',
+        border: 'border-teal-300',
+        badge: 'bg-teal-300/40 text-teal-900',
+      };
+    }
+
     function App() {
       // LocalStorage 기반 상태 초기화 (수정한 내용이 100% 영구 보존됨)
       const [childrenList, setChildrenList] = useState(() => {
@@ -669,10 +745,10 @@
                 <div className="space-y-4">
                   {/* View Mode Toggle */}
                   <div className="flex items-center justify-between gap-2 px-1">
-                    <div className="flex items-center bg-slate-200/80 p-1 rounded-xl">
+                    <div className="flex items-center bg-slate-200/80 p-1 rounded-xl overflow-x-auto no-scrollbar">
                       <button
                         onClick={() => setViewMode('today')}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all shrink-0 ${
                           viewMode === 'today'
                             ? 'bg-white text-teal-700 shadow-xs'
                             : 'text-slate-600'
@@ -681,24 +757,45 @@
                         🕒 오늘 라이딩 ({todaySchedules.length})
                       </button>
                       <button
+                        onClick={() => setViewMode('table')}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all shrink-0 ${
+                          viewMode === 'table'
+                            ? 'bg-white text-teal-700 shadow-xs'
+                            : 'text-slate-600'
+                        }`}
+                      >
+                        📊 일주일 시간표
+                      </button>
+                      <button
                         onClick={() => setViewMode('weekly')}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all shrink-0 ${
                           viewMode === 'weekly'
                             ? 'bg-white text-teal-700 shadow-xs'
                             : 'text-slate-600'
                         }`}
                       >
-                        📅 주간 시간표
+                        📅 요일별 카드
                       </button>
                     </div>
 
                     <button
                       onClick={handleStartAddSchedule}
-                      className="px-3 py-1.5 rounded-xl bg-teal-600 text-white text-xs font-bold shadow-xs cursor-pointer hover:bg-teal-700"
+                      className="px-3 py-1.5 rounded-xl bg-teal-600 text-white text-xs font-bold shadow-xs cursor-pointer hover:bg-teal-700 shrink-0"
                     >
                       + 일정 등록
                     </button>
                   </div>
+
+                  {/* 1. TABLE VIEW: 한눈에 보는 일주일 표 (첨부 이미지 스타일) */}
+                  {viewMode === 'table' && (
+                    <WeeklyScheduleTableStandalone
+                      schedules={schedules}
+                      childrenList={childrenList}
+                      selectedChildId={selectedChildId}
+                      onSelectChild={setSelectedChildId}
+                      onEditSchedule={handleStartEditSchedule}
+                    />
+                  )}
 
                   {/* Today Summary Banner */}
                   {viewMode === 'today' && (
@@ -748,7 +845,8 @@
                     </div>
                   )}
 
-                  {/* Schedule Cards */}
+                  {/* Schedule Cards (only for today or weekly mode) */}
+                  {viewMode !== 'table' && (
                   <div className="space-y-3">
                     {activeSchedules.length === 0 ? (
                       <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-8 text-center text-slate-400 text-xs">
@@ -884,6 +982,7 @@
                       })
                     )}
                   </div>
+                  )}
                 </div>
               )}
 
@@ -1339,6 +1438,172 @@
               >
                 닫기
               </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // --- STANDALONE WEEKLY SCHEDULE TABLE (사용자 첨부 이미지 스타일 완벽 재현) ---
+    function WeeklyScheduleTableStandalone({ schedules, childrenList, selectedChildId, onSelectChild, onEditSchedule }) {
+      const [tableChildMode, setTableChildMode] = useState(selectedChildId === 'all' ? 'all' : selectedChildId);
+
+      useEffect(() => {
+        if (selectedChildId !== 'all') {
+          setTableChildMode(selectedChildId);
+        }
+      }, [selectedChildId]);
+
+      const DAYS = [
+        { idx: 1, label: '월' },
+        { idx: 2, label: '화' },
+        { idx: 3, label: '수' },
+        { idx: 4, label: '목' },
+        { idx: 5, label: '금' },
+        { idx: 6, label: '토' },
+        { idx: 0, label: '일' },
+      ];
+
+      const renderSingleChildTable = (child) => {
+        const childSchedules = schedules.filter(s => s.childId === child.id);
+
+        return (
+          <div key={child.id} className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden mb-4">
+            {/* 자녀 헤더 배너 */}
+            <div className="bg-slate-800 text-white px-3.5 py-2.5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-base leading-none">{child.avatar}</span>
+                <span className="font-bold text-xs sm:text-sm">{child.name} 일주일 시간표</span>
+                <span className="text-[11px] text-slate-300">({child.age})</span>
+              </div>
+              <span className="text-[11px] bg-slate-700 text-teal-300 px-2 py-0.5 rounded-full font-semibold">
+                주 {childSchedules.length}개 수업
+              </span>
+            </div>
+
+            {/* 일주일 격자 테이블 (첨부 이미지 레이아웃) */}
+            <div className="divide-y divide-slate-300">
+              {DAYS.map(day => {
+                const daySchedules = childSchedules
+                  .filter(s => s.daysOfWeek.includes(day.idx))
+                  .sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+                return (
+                  <div key={day.idx} className="flex min-h-[46px] items-stretch">
+                    {/* 좌측 파란색 요일 헤더 (첨부 이미지와 100% 동일) */}
+                    <div className="w-12 sm:w-14 bg-blue-600 text-white font-extrabold flex items-center justify-center text-xs sm:text-sm shrink-0 border-r border-slate-300 select-none">
+                      {day.label}
+                    </div>
+
+                    {/* 우측 과목 셀들 */}
+                    <div className="flex-1 flex flex-wrap sm:flex-nowrap items-center gap-1.5 p-1.5 overflow-x-auto no-scrollbar bg-white">
+                      {daySchedules.length === 0 ? (
+                        <div className="text-slate-300 text-xs px-2.5 py-1 select-none">
+                          -
+                        </div>
+                      ) : (
+                        daySchedules.map(item => {
+                          const col = getSubjectColor(item.subject, item.academyName);
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => onEditSchedule(item)}
+                              className={`px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-lg border ${col.bg} ${col.text} ${col.border} flex flex-col justify-center cursor-pointer transition-all hover:brightness-95 active:scale-95 shadow-2xs shrink-0 max-w-[220px] text-left`}
+                              title="터치하여 일정 수정"
+                            >
+                              <div className="font-extrabold text-xs sm:text-sm leading-tight flex items-center gap-1">
+                                <span>{item.subject}</span>
+                                <span className="text-[10px] sm:text-xs font-semibold opacity-90">
+                                  ({formatSimpleTime(item.startTime)}~{formatSimpleTime(item.endTime)})
+                                </span>
+                              </div>
+                              <div className="text-[10px] opacity-75 font-normal truncate mt-0.5 max-w-[150px]">
+                                {item.academyName}
+                              </div>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      };
+
+      const targetChildren = tableChildMode === 'all'
+        ? childrenList
+        : childrenList.filter(c => c.id === tableChildMode);
+
+      return (
+        <div className="space-y-3">
+          {/* 자녀 전환 필터 바 */}
+          <div className="flex items-center gap-1.5 p-1 bg-slate-200/80 rounded-2xl overflow-x-auto no-scrollbar">
+            <button
+              type="button"
+              onClick={() => {
+                setTableChildMode('all');
+                onSelectChild('all');
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition-all shrink-0 ${
+                tableChildMode === 'all' ? 'bg-white text-teal-800 shadow-xs' : 'text-slate-600'
+              }`}
+            >
+              👥 두 아이 모두 보기
+            </button>
+            {childrenList.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => {
+                  setTableChildMode(c.id);
+                  onSelectChild(c.id);
+                }}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition-all shrink-0 ${
+                  tableChildMode === c.id ? 'bg-white text-teal-800 shadow-xs' : 'text-slate-600'
+                }`}
+              >
+                <span>{c.avatar}</span>
+                <span>{c.name} 시간표</span>
+              </button>
+            ))}
+          </div>
+
+          {/* 터치 안내 문구 */}
+          <div className="flex items-center justify-between text-[11px] text-slate-500 px-1">
+            <span className="flex items-center gap-1">
+              <span>💡</span>
+              <span>수업 칸을 터치하면 요일과 시간을 바로 수정할 수 있습니다.</span>
+            </span>
+          </div>
+
+          {/* 자녀별 시간표 목록 */}
+          <div>
+            {targetChildren.map(c => renderSingleChildTable(c))}
+          </div>
+
+          {/* 과목별 색상 범례 (사용자 이미지 스타일 안내) */}
+          <div className="bg-white rounded-2xl p-3 border border-slate-200 shadow-2xs space-y-2">
+            <div className="text-xs font-bold text-slate-700">🎨 과목별 색상 구분</div>
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5 text-[11px]">
+              <div className="px-2 py-1 rounded-md bg-yellow-200 text-yellow-950 border border-yellow-400 font-bold text-center">
+                수학 (노랑)
+              </div>
+              <div className="px-2 py-1 rounded-md bg-fuchsia-200 text-fuchsia-950 border border-fuchsia-400 font-bold text-center">
+                과학/물화생 (보라)
+              </div>
+              <div className="px-2 py-1 rounded-md bg-lime-200 text-lime-950 border border-lime-400 font-bold text-center">
+                국어/논술 (연두)
+              </div>
+              <div className="px-2 py-1 rounded-md bg-cyan-200 text-cyan-950 border border-cyan-400 font-bold text-center">
+                영어/어학 (하늘)
+              </div>
+              <div className="px-2 py-1 rounded-md bg-amber-100 text-amber-950 border border-amber-300 font-bold text-center">
+                예체능 (살구)
+              </div>
             </div>
           </div>
         </div>
