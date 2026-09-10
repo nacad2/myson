@@ -185,6 +185,26 @@
 
     const STORAGE_PREFIX = 'kidsride_v3_';
 
+    function encodeSyncData(data) {
+      try {
+        const json = JSON.stringify(data);
+        return btoa(unescape(encodeURIComponent(json)));
+      } catch (e) {
+        console.error(e);
+        return '';
+      }
+    }
+
+    function decodeSyncData(encoded) {
+      try {
+        const json = decodeURIComponent(escape(atob(encoded)));
+        return JSON.parse(json);
+      } catch (e) {
+        console.error(e);
+        return null;
+      }
+    }
+
     function App() {
       // LocalStorage 기반 상태 초기화 (수정한 내용이 100% 영구 보존됨)
       const [childrenList, setChildrenList] = useState(() => {
@@ -206,6 +226,10 @@
         const saved = localStorage.getItem(STORAGE_PREFIX + 'notes');
         return saved ? JSON.parse(saved) : INITIAL_FAMILY_NOTES;
       });
+
+      // 기기 간 동기화 상태
+      const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+      const [pendingSyncData, setPendingSyncData] = useState(null);
 
       // UI 상태
       const [activeTab, setActiveTab] = useState('schedule');
@@ -229,6 +253,22 @@
 
       // 학원비 필터 상태
       const [tuitionFilter, setTuitionFilter] = useState('all');
+
+      // URL Hash 기반 자동 동기화 감지 (모바일에서 링크 탭 시 감지)
+      useEffect(() => {
+        const checkHash = () => {
+          if (window.location.hash.startsWith('#sync=')) {
+            const raw = window.location.hash.substring(6);
+            const decoded = decodeSyncData(raw);
+            if (decoded && (decoded.children || decoded.schedules || decoded.tuitions)) {
+              setPendingSyncData(decoded);
+            }
+          }
+        };
+        checkHash();
+        window.addEventListener('hashchange', checkHash);
+        return () => window.removeEventListener('hashchange', checkHash);
+      }, []);
 
       // LocalStorage 자동 동기화
       useEffect(() => {
@@ -266,6 +306,32 @@
           localStorage.removeItem(STORAGE_PREFIX + 'notes');
           showToast('초기 데이터로 복원되었습니다.');
         }
+      };
+
+      // 동기화 적용 핸들러
+      const applySyncData = (data) => {
+        if (!data) return;
+        if (Array.isArray(data.children) && data.children.length > 0) {
+          setChildrenList(data.children);
+          localStorage.setItem(STORAGE_PREFIX + 'children', JSON.stringify(data.children));
+        }
+        if (Array.isArray(data.schedules)) {
+          setSchedules(data.schedules);
+          localStorage.setItem(STORAGE_PREFIX + 'schedules', JSON.stringify(data.schedules));
+        }
+        if (Array.isArray(data.tuitions)) {
+          setTuitions(data.tuitions);
+          localStorage.setItem(STORAGE_PREFIX + 'tuitions', JSON.stringify(data.tuitions));
+        }
+        if (Array.isArray(data.notes)) {
+          setFamilyNotes(data.notes);
+          localStorage.setItem(STORAGE_PREFIX + 'notes', JSON.stringify(data.notes));
+        }
+        setPendingSyncData(null);
+        if (window.location.hash.startsWith('#sync=')) {
+          history.replaceState(null, '', window.location.pathname + window.location.search);
+        }
+        showToast('🎉 PC 데이터가 이 기기에 완벽히 동기화되었습니다!');
       };
 
       // 1. 자녀 저장/수정 핸들러
@@ -478,6 +544,43 @@
               </div>
             )}
 
+            {/* 동기화 수신 배너 */}
+            {pendingSyncData && (
+              <div className="bg-gradient-to-r from-teal-600 to-emerald-600 text-white px-4 py-3 shadow-lg flex flex-col gap-2 z-40 sticky top-0">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">📲</span>
+                    <div>
+                      <p className="text-xs font-bold leading-tight">공유받은 일정·학원비 데이터가 있습니다!</p>
+                      <p className="text-[11px] text-teal-100">
+                        자녀 {pendingSyncData.children?.length || 0}명 · 일정 {pendingSyncData.schedules?.length || 0}개
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setPendingSyncData(null)}
+                    className="text-teal-200 hover:text-white text-xs cursor-pointer p-1"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="flex gap-2 pt-0.5">
+                  <button
+                    onClick={() => applySyncData(pendingSyncData)}
+                    className="flex-1 py-1.5 bg-white text-teal-800 text-xs font-bold rounded-xl shadow-xs cursor-pointer hover:bg-teal-50"
+                  >
+                    ✅ 지금 이 기기에 동기화 적용
+                  </button>
+                  <button
+                    onClick={() => setPendingSyncData(null)}
+                    className="px-3 py-1.5 bg-teal-700/60 text-white text-xs rounded-xl cursor-pointer"
+                  >
+                    취소
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Header */}
             <header className="bg-white/95 backdrop-blur-md sticky top-0 z-30 border-b border-slate-100 px-4 pt-3 pb-3">
               <div className="flex items-center justify-between mb-3">
@@ -496,12 +599,22 @@
                   </div>
                 </div>
 
-                <button
-                  onClick={handleReset}
-                  className="flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-teal-600 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors"
-                >
-                  <span>🔄 Mock 리셋</span>
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setIsSyncModalOpen(true)}
+                    className="flex items-center gap-1 text-[11px] font-bold text-teal-700 hover:text-teal-900 bg-teal-50 border border-teal-200 px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors shadow-2xs"
+                    title="PC에서 수정한 내용을 폰으로 전송/동기화"
+                  >
+                    <span>🔗 폰으로 전송</span>
+                  </button>
+                  <button
+                    onClick={handleReset}
+                    className="flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-slate-600 bg-slate-50 border border-slate-200 px-2 py-1.5 rounded-lg cursor-pointer transition-colors"
+                    title="기본 샘플 데이터로 복원"
+                  >
+                    <span>🔄 리셋</span>
+                  </button>
+                </div>
               </div>
 
               {/* Children Filter Pills & Manage Button */}
@@ -1042,6 +1155,191 @@
                 onSave={handleSaveTuition}
               />
             )}
+
+            {/* MODAL 4: 기기 간 동기화 / 공유 모달 */}
+            {isSyncModalOpen && (
+              <SyncModalStandalone
+                data={{
+                  children: childrenList,
+                  schedules,
+                  tuitions,
+                  notes: familyNotes,
+                }}
+                onClose={() => setIsSyncModalOpen(false)}
+                onApplySync={applySyncData}
+              />
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // --- STANDALONE SYNC MODAL ---
+    function SyncModalStandalone({ data, onClose, onApplySync }) {
+      const [tab, setTab] = useState('link'); // 'link' | 'code'
+      const [copied, setCopied] = useState(false);
+      const [codeCopied, setCodeCopied] = useState(false);
+      const [inputCode, setInputCode] = useState('');
+
+      const encoded = encodeSyncData(data);
+      const syncUrl = `${window.location.origin}${window.location.pathname}#sync=${encoded}`;
+
+      const handleCopyLink = () => {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(syncUrl).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 3000);
+          }).catch(() => {
+            prompt('아래 링크를 전체 복사하여 카카오톡으로 전송하세요:', syncUrl);
+          });
+        } else {
+          prompt('아래 링크를 전체 복사하여 카카오톡으로 전송하세요:', syncUrl);
+        }
+      };
+
+      const handleCopyCode = () => {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(encoded).then(() => {
+            setCodeCopied(true);
+            setTimeout(() => setCodeCopied(false), 3000);
+          }).catch(() => {
+            prompt('아래 코드를 복사하세요:', encoded);
+          });
+        } else {
+          prompt('아래 코드를 복사하세요:', encoded);
+        }
+      };
+
+      const handleApplyCode = () => {
+        if (!inputCode.trim()) {
+          alert('데이터 코드를 입력해주세요.');
+          return;
+        }
+        const decoded = decodeSyncData(inputCode.trim());
+        if (!decoded) {
+          alert('올바르지 않은 동기화 코드입니다.');
+          return;
+        }
+        onApplySync(decoded);
+        onClose();
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white w-full max-w-md rounded-3xl p-5 shadow-2xl max-h-[90vh] overflow-y-auto no-scrollbar">
+            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">📲</span>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">PC ➔ 폰 데이터 동기화</h3>
+                  <p className="text-xs text-slate-400">수정한 일정을 폰으로 1초 만에 전송합니다</p>
+                </div>
+              </div>
+              <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
+            </div>
+
+            {/* Tab Selector */}
+            <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl my-4">
+              <button
+                type="button"
+                onClick={() => setTab('link')}
+                className={`flex-1 py-2 text-xs font-bold rounded-xl cursor-pointer transition-all ${
+                  tab === 'link' ? 'bg-white text-teal-700 shadow-xs' : 'text-slate-500'
+                }`}
+              >
+                🔗 카톡 링크로 보내기 (추천)
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab('code')}
+                className={`flex-1 py-2 text-xs font-bold rounded-xl cursor-pointer transition-all ${
+                  tab === 'code' ? 'bg-white text-teal-700 shadow-xs' : 'text-slate-500'
+                }`}
+              >
+                📋 코드 직접 입력하기
+              </button>
+            </div>
+
+            {tab === 'link' && (
+              <div className="space-y-4">
+                <div className="bg-teal-50 border border-teal-200/80 rounded-2xl p-4 text-xs text-teal-900 space-y-2">
+                  <div className="font-bold flex items-center gap-1.5 text-teal-800">
+                    <span>💡 가장 간편한 동기화 방법</span>
+                  </div>
+                  <ol className="list-decimal list-inside space-y-1 text-slate-700 leading-relaxed text-[11px]">
+                    <li>아래 <b>[동기화 링크 복사하기]</b> 버튼을 누릅니다.</li>
+                    <li>카카오톡 <b>[나와의 채팅]</b>에 붙여넣어 전송합니다.</li>
+                    <li>스마트폰에서 그 링크를 터치하면 <b>[동기화 적용]</b> 배너가 뜨며 PC 내용이 폰에 그대로 적용됩니다!</li>
+                  </ol>
+                </div>
+
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                  <div className="flex justify-between items-center text-[11px] text-slate-500 font-semibold">
+                    <span>현재 포함된 데이터:</span>
+                    <span className="text-teal-700 font-bold">
+                      자녀 {data.children?.length}명 · 일정 {data.schedules?.length}개 · 학원비 {data.tuitions?.length}건
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCopyLink}
+                    className={`w-full py-3.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all ${
+                      copied
+                        ? 'bg-emerald-600 text-white shadow-emerald-200'
+                        : 'bg-teal-600 hover:bg-teal-700 text-white shadow-teal-200'
+                    }`}
+                  >
+                    <span>{copied ? '✅ 복사 완료! 카톡에 붙여넣으세요' : '🔗 동기화 링크 복사하기 (클릭)'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {tab === 'code' && (
+              <div className="space-y-4">
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-slate-700">현재 기기의 데이터 백업 코드</span>
+                    <button
+                      type="button"
+                      onClick={handleCopyCode}
+                      className="text-xs text-teal-700 font-bold hover:underline cursor-pointer"
+                    >
+                      {codeCopied ? '✅ 복사됨' : '📋 코드 복사'}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-400">다른 기기에서 아래 입력창에 넣으면 복원됩니다.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold text-slate-700">다른 기기에서 복사한 코드 불러오기</label>
+                  <textarea
+                    rows={4}
+                    value={inputCode}
+                    onChange={(e) => setInputCode(e.target.value)}
+                    placeholder="복사한 데이터 코드를 여기에 붙여넣으세요..."
+                    className="w-full text-[11px] font-mono bg-slate-50 border border-slate-200 rounded-2xl p-3 no-scrollbar resize-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleApplyCode}
+                    className="w-full py-3 bg-teal-600 text-white font-bold rounded-2xl text-xs shadow-md shadow-teal-200 cursor-pointer"
+                  >
+                    📥 이 데이터로 즉시 덮어쓰기/적용
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="pt-4 mt-4 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs cursor-pointer"
+              >
+                닫기
+              </button>
+            </div>
           </div>
         </div>
       );
