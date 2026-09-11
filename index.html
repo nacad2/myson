@@ -341,12 +341,37 @@
 
       const CLOUD_BROKER = 'https://ntfy.sh';
 
-      // 1. 클라우드에서 최신 데이터 가져오기 (1회성 폴링)
+      // 원격 수신 데이터 적용 헬퍼 (React 상태 + LocalStorage 즉시 영구 저장)
+      const applyRemoteData = (cloudData) => {
+        if (!cloudData) return;
+        isRemoteUpdatingRef.current = true;
+        if (cloudData.children && Array.isArray(cloudData.children) && cloudData.children.length > 0) {
+          setChildrenList(cloudData.children);
+          localStorage.setItem(STORAGE_PREFIX + 'children', JSON.stringify(cloudData.children));
+        }
+        if (cloudData.schedules && Array.isArray(cloudData.schedules)) {
+          setSchedules(cloudData.schedules);
+          localStorage.setItem(STORAGE_PREFIX + 'schedules', JSON.stringify(cloudData.schedules));
+        }
+        if (cloudData.tuitions && Array.isArray(cloudData.tuitions)) {
+          setTuitions(cloudData.tuitions);
+          localStorage.setItem(STORAGE_PREFIX + 'tuitions', JSON.stringify(cloudData.tuitions));
+        }
+        if (cloudData.notes && Array.isArray(cloudData.notes)) {
+          setFamilyNotes(cloudData.notes);
+          localStorage.setItem(STORAGE_PREFIX + 'notes', JSON.stringify(cloudData.notes));
+        }
+        setCloudSyncStatus('synced');
+        setLastSyncedTime(new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+        setTimeout(() => { isRemoteUpdatingRef.current = false; }, 800);
+      };
+
+      // 1. 클라우드에서 최신 데이터 가져오기 (1회성 폴링: since=all로 캐시 메시지 포함)
       const fetchFromCloud = async (familyId, silent = false) => {
         if (!familyId) return null;
         try {
           if (!silent) setCloudSyncStatus('syncing');
-          const res = await fetch(`${CLOUD_BROKER}/${familyId}/json?poll=1`);
+          const res = await fetch(`${CLOUD_BROKER}/${familyId}/json?poll=1&since=all`);
           if (res.ok) {
             const text = await res.text();
             const lines = text.trim().split('\n').filter(Boolean);
@@ -445,22 +470,15 @@
           alert('가족 코드를 입력해 주세요.');
           return false;
         }
+        setCloudFamilyId(cleanId);
+        localStorage.setItem(STORAGE_PREFIX + 'cloud_family_id', cleanId);
+
         const cloudData = await fetchFromCloud(cleanId);
         if (cloudData) {
-          isRemoteUpdatingRef.current = true;
-          setCloudFamilyId(cleanId);
-          localStorage.setItem(STORAGE_PREFIX + 'cloud_family_id', cleanId);
-          if (cloudData.children) setChildrenList(cloudData.children);
-          if (cloudData.schedules) setSchedules(cloudData.schedules);
-          if (cloudData.tuitions) setTuitions(cloudData.tuitions);
-          if (cloudData.notes) setFamilyNotes(cloudData.notes);
-          setTimeout(() => { isRemoteUpdatingRef.current = false; }, 800);
+          applyRemoteData(cloudData);
           showToast('🎉 우리 가족 클라우드와 연결되었습니다!');
           return true;
         } else {
-          // 혹시 아직 메시지가 없더라도 방 ID 등록 및 연결
-          setCloudFamilyId(cleanId);
-          localStorage.setItem(STORAGE_PREFIX + 'cloud_family_id', cleanId);
           setCloudSyncStatus('synced');
           showToast('🎉 우리 가족 클라우드 방에 연결되었습니다!');
           return true;
@@ -482,20 +500,24 @@
         if (!cloudFamilyId) return;
         const cloudData = await fetchFromCloud(cloudFamilyId, false);
         if (cloudData) {
-          isRemoteUpdatingRef.current = true;
-          if (cloudData.children) setChildrenList(cloudData.children);
-          if (cloudData.schedules) setSchedules(cloudData.schedules);
-          if (cloudData.tuitions) setTuitions(cloudData.tuitions);
-          if (cloudData.notes) setFamilyNotes(cloudData.notes);
-          setTimeout(() => { isRemoteUpdatingRef.current = false; }, 800);
+          applyRemoteData(cloudData);
           showToast('🔄 클라우드 최신 데이터를 성공적으로 불러왔습니다!');
         } else {
           showToast('이미 최신 상태이거나 클라우드에 새 데이터가 없습니다.');
         }
       };
 
-      // 최초 마운트: ?family= 파라미터 감지 및 초기 클라우드 로드
+      // 최초 마운트: ?family= 파라미터 감지 및 #sync= 해시 감지 (즉각 0초 복원)
       useEffect(() => {
+        // 1. URL 해시에 동기화 데이터가 있으면 즉시 복원 (서버 지연 없는 0초 즉시 복원)
+        if (window.location.hash.startsWith('#sync=')) {
+          const raw = window.location.hash.substring(6);
+          const decoded = decodeSyncData(raw);
+          if (decoded) {
+            applyRemoteData(decoded);
+          }
+        }
+
         const params = new URLSearchParams(window.location.search);
         const familyParam = params.get('family');
         if (familyParam) {
@@ -505,12 +527,7 @@
         } else if (cloudFamilyId) {
           fetchFromCloud(cloudFamilyId, true).then((cloudData) => {
             if (cloudData) {
-              isRemoteUpdatingRef.current = true;
-              if (cloudData.children) setChildrenList(cloudData.children);
-              if (cloudData.schedules) setSchedules(cloudData.schedules);
-              if (cloudData.tuitions) setTuitions(cloudData.tuitions);
-              if (cloudData.notes) setFamilyNotes(cloudData.notes);
-              setTimeout(() => { isRemoteUpdatingRef.current = false; }, 800);
+              applyRemoteData(cloudData);
             }
           });
         }
@@ -532,14 +549,7 @@
               if (parsed.event === 'message' && parsed.message) {
                 const cloudData = JSON.parse(parsed.message);
                 if (cloudData && (cloudData.children || cloudData.schedules || cloudData.tuitions)) {
-                  isRemoteUpdatingRef.current = true;
-                  if (cloudData.children) setChildrenList(cloudData.children);
-                  if (cloudData.schedules) setSchedules(cloudData.schedules);
-                  if (cloudData.tuitions) setTuitions(cloudData.tuitions);
-                  if (cloudData.notes) setFamilyNotes(cloudData.notes);
-                  setCloudSyncStatus('synced');
-                  setLastSyncedTime(new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-                  setTimeout(() => { isRemoteUpdatingRef.current = false; }, 800);
+                  applyRemoteData(cloudData);
                 }
               }
             } catch (e) {
@@ -559,12 +569,7 @@
           if (document.visibilityState === 'visible') {
             fetchFromCloud(cloudFamilyId, true).then((cloudData) => {
               if (cloudData) {
-                isRemoteUpdatingRef.current = true;
-                if (cloudData.children) setChildrenList(cloudData.children);
-                if (cloudData.schedules) setSchedules(cloudData.schedules);
-                if (cloudData.tuitions) setTuitions(cloudData.tuitions);
-                if (cloudData.notes) setFamilyNotes(cloudData.notes);
-                setTimeout(() => { isRemoteUpdatingRef.current = false; }, 800);
+                applyRemoteData(cloudData);
               }
             });
           }
@@ -1659,6 +1664,12 @@
                 cloudFamilyId={cloudFamilyId}
                 cloudSyncStatus={cloudSyncStatus}
                 lastSyncedTime={lastSyncedTime}
+                data={{
+                  children: childrenList,
+                  schedules,
+                  tuitions,
+                  notes: familyNotes,
+                }}
                 onClose={() => setIsCloudModalOpen(false)}
                 onCreateFamily={handleCreateCloudFamily}
                 onConnectFamily={handleConnectCloudFamily}
@@ -1676,6 +1687,7 @@
       cloudFamilyId,
       cloudSyncStatus,
       lastSyncedTime,
+      data,
       onClose,
       onCreateFamily,
       onConnectFamily,
@@ -1689,8 +1701,9 @@
       const [codeCopied, setCodeCopied] = useState(false);
       const [activeSubTab, setActiveSubTab] = useState(cloudFamilyId ? 'share' : 'create');
 
+      const encodedSync = data ? encodeSyncData(data) : '';
       const inviteUrl = cloudFamilyId
-        ? `${window.location.origin}${window.location.pathname}?family=${cloudFamilyId}`
+        ? `${window.location.origin}${window.location.pathname}?family=${cloudFamilyId}${encodedSync ? '#sync=' + encodedSync : ''}`
         : '';
 
       const handleCopyLink = () => {
@@ -1825,19 +1838,22 @@
                     </span>
                     <span className="text-[10px] bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full font-semibold">최초 1회만 클릭</span>
                   </div>
-                  <p className="text-[11px] text-teal-700 leading-relaxed">
-                    아래 버튼을 눌러 링크를 복사한 뒤, <strong>배우자나 가족에게 카카오톡/문자</strong>로 보내주세요.
-                  </p>
+                  <div className="text-[11px] text-teal-800 bg-teal-100/50 p-2.5 rounded-xl space-y-1">
+                    <p className="font-bold text-teal-900">⚠️ 중요: 브라우저 주소창 주소를 그대로 보내시면 안 됩니다!</p>
+                    <p className="leading-relaxed">
+                      주소창 주소는 빈 주소이므로 가족에게 가상 세팅이 뜹니다. 반드시 <strong>아래 초록색 버튼</strong>을 눌러 복사된 <strong>[가족 초대 전용 링크]</strong>를 카카오톡으로 보내주세요.
+                    </p>
+                  </div>
                   
                   <button
                     onClick={handleCopyLink}
-                    className={`w-full py-3 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-sm cursor-pointer transition-all ${
+                    className={`w-full py-3.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-sm cursor-pointer transition-all ${
                       linkCopied
-                        ? 'bg-emerald-600 text-white'
+                        ? 'bg-emerald-600 text-white shadow-emerald-200'
                         : 'bg-teal-600 hover:bg-teal-700 text-white shadow-teal-200'
                     }`}
                   >
-                    <span>{linkCopied ? '✅ 초대 링크가 클립보드에 복사되었습니다!' : '🔗 가족 초대 링크 복사하기 (카톡 전송)'}</span>
+                    <span>{linkCopied ? '✅ 초대 링크가 복사되었습니다! (카톡에 붙여넣기)' : '🔗 가족 초대 링크 복사하기 (카카오톡 전송용)'}</span>
                   </button>
                 </div>
 
